@@ -38,6 +38,7 @@ async function connectMongo() {
     collections = {
       master_slips: db.collection("master_slips"),
       generated_slips: db.collection("generated_slips"),
+      optimized_slips: db.collection("optimized_slips"),
       master_slip_matches: db.collection("master_slip_matches"),
       matches: db.collection("matches"),
       slips: db.collection("slips"), // For the /generate-slip route
@@ -283,6 +284,182 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: "Failed to fetch placement slips",
+      message: err.message,
+    });
+  }
+});
+
+/**
+ * POST /api/sync-slips
+ * 
+ * Sync master slip and generated slips (upsert) - ENHANCED with backward compatibility
+ * 
+ * Accepts payload:
+ * {
+ *   master_slip: { ... },
+ *   generated_slips: [ ... ],
+ *   optimized_slips: [ ... ],  // optional
+ *   matches: [ ... ]            // optional
+ * }
+ */
+app.post("/api/sync-slips", async (req, res) => {
+  // Guard: Ensure database collections are available
+  if (!collections) {
+    return res.status(503).json({ 
+      success: false, 
+      error: "Database unavailable" 
+    });
+  }
+
+  try {
+    const payload = req.body;
+
+    if (!payload.master_slip) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid payload: master_slip is required",
+      });
+    }
+
+    const { master_slip, generated_slips, optimized_slips, matches } = payload;
+
+    // ============================================================
+    // 1. UPSERT MASTER SLIP
+    // ============================================================
+    const masterSlipData = {
+      ...master_slip,
+      master_slip_id: String(master_slip.id || master_slip.master_slip_id),
+      updated_at: new Date(),
+    };
+
+    await collections.master_slips.updateOne(
+      { master_slip_id: masterSlipData.master_slip_id },
+      { $set: masterSlipData },
+      { upsert: true }
+    );
+
+    let syncCounts = {
+      master_slips: 1,
+      generated_slips: 0,
+      optimized_slips: 0,
+      matches: 0,
+      master_slip_matches: 0,
+    };
+
+    // ============================================================
+    // 2. UPSERT GENERATED SLIPS (backward compatible)
+    // ============================================================
+    if (Array.isArray(generated_slips) && generated_slips.length > 0) {
+      for (const slip of generated_slips) {
+        const slipData = {
+          ...slip,
+          slip_id: String(
+            slip.id ||
+              slip.slip_id ||
+              `gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          ),
+          master_slip_id: masterSlipData.master_slip_id,
+          updated_at: new Date(),
+        };
+
+        await collections.generated_slips.updateOne(
+          { slip_id: slipData.slip_id },
+          { $set: slipData },
+          { upsert: true }
+        );
+        syncCounts.generated_slips++;
+      }
+    }
+
+    // ============================================================
+    // 3. UPSERT OPTIMIZED SLIPS (new feature)
+    // ============================================================
+    if (
+      collections.optimized_slips &&
+      Array.isArray(optimized_slips) &&
+      optimized_slips.length > 0
+    ) {
+      for (const slip of optimized_slips) {
+        const slipData = {
+          ...slip,
+          master_slip_id: parseInt(masterSlipData.master_slip_id),
+          updated_at: new Date(),
+        };
+
+        await collections.optimized_slips.updateOne(
+          { id: slip.id, master_slip_id: slipData.master_slip_id },
+          { $set: slipData },
+          { upsert: true }
+        );
+        syncCounts.optimized_slips++;
+      }
+    }
+
+    // ============================================================
+    // 4. UPSERT MASTER SLIP MATCHES (new feature)
+    // ============================================================
+    if (
+      collections.master_slip_matches &&
+      Array.isArray(matches) &&
+      matches.length > 0
+    ) {
+      for (const match of matches) {
+        const matchData = {
+          ...match,
+          master_slip_id: parseInt(masterSlipData.master_slip_id),
+          updated_at: new Date(),
+        };
+
+        await collections.master_slip_matches.updateOne(
+          { id: match.id },
+          { $set: matchData },
+          { upsert: true }
+        );
+        syncCounts.master_slip_matches++;
+
+        // ============================================================
+        // 5. EXTRACT AND UPSERT MATCH DATA (if match_data exists)
+        // ============================================================
+        if (collections.matches && match.match_data) {
+          const extractedMatch = {
+            id: match.match_id,
+            home_team:
+              match.match_data.home_team || match.match_data.homeTeam || "",
+            away_team:
+              match.match_data.away_team || match.match_data.awayTeam || "",
+            ...match.match_data,
+          };
+
+          await collections.matches.updateOne(
+            { id: extractedMatch.id },
+            { $set: extractedMatch },
+            { upsert: true }
+          );
+          syncCounts.matches++;
+        }
+      }
+    }
+
+    // ============================================================
+    // RESPONSE
+    // ============================================================
+    res.json({
+      success: true,
+      synced: syncCounts,
+      message: `Successfully synced master slip ${masterSlipData.master_slip_id}`,
+      details: {
+        master_slip_id: masterSlipData.master_slip_id,
+        generated_slips: syncCounts.generated_slips,
+        optimized_slips: syncCounts.optimized_slips,
+        matches: syncCounts.matches,
+        master_slip_matches: syncCounts.master_slip_matches,
+      },
+    });
+  } catch (err) {
+    console.error("Error syncing slips:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to sync slips",
       message: err.message,
     });
   }
