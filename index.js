@@ -247,7 +247,8 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
           estimated_return: parseFloat(String(estimatedReturn)),
           risk_category: riskCategory,
           diversity_score:
-            slip.diversity_score !== null && slip.diversity_score !== undefined
+            slip.diversity_score !== null &&
+            slip.diversity_score !== undefined
               ? parseFloat(String(slip.diversity_score))
               : null,
           created_at: (() => {
@@ -255,12 +256,13 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
             return date instanceof Date ? date.toISOString() : String(date);
           })(),
           legs: (slip.legs ?? []).map((leg) => {
-            const match = matchesMap.get(leg.match_id);
+            // ---- NEW LOGIC: prefer leg.match, then fallback to matchesMap ----
+            const match = leg.match || matchesMap.get(leg.match_id) || {};
 
             return {
               match_id: parseInt(String(leg.match_id)),
-              home_team: String(match?.home_team ?? ""),
-              away_team: String(match?.away_team ?? ""),
+              home_team: String(match.home_team ?? ""),
+              away_team: String(match.away_team ?? ""),
               market: String(leg.market ?? ""),
               selection: String(leg.selection ?? ""),
               odds: parseFloat(String(leg.odds ?? 0)),
