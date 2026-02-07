@@ -5,8 +5,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 
 const PORT = process.env.PORT || 4000;
-const MONGO_URI =
-  process.env.MONGO_URI || "mongodb+srv://kojoyeboah53i:saints_salvation2@cluster0.sk4iy96.mongodb.net/generatedslips?retryWrites=true&w=majority";
+const MONGO_URI = "mongodb+srv://kojoyeboah53i:saints_salvation2@cluster0.sk4iy96.mongodb.net/generatedslips?retryWrites=true&w=majority";
 
 const app = express();
 
@@ -62,7 +61,7 @@ app.post("/generate-slip", async (req, res) => {
 });
 
 // Route to get a slip by master slip ID
-app.get("/slip/:masterSlipId", async (req, res) => {
+app.get("api/v1/slip/:masterSlipId", async (req, res) => {
   try {
     const slip = await Slip.findOne({ masterSlipId: req.params.masterSlipId });
 
@@ -87,13 +86,16 @@ app.get("/slip/:masterSlipId", async (req, res) => {
 
 // Connect to MongoDB and start server
 mongoose
-  .connect(MONGO_URI)
+  .connect(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+  })
   .then(() => {
-    console.log("Connected to MongoDB");
+    console.log("✅ Connected to MongoDB Atlas");
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
     });
   })
   .catch((error) => {
-    console.error("MongoDB connection error:", error);
+    console.error("❌ MongoDB connection error:", error.message);
   });
+
