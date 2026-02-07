@@ -1,6 +1,14 @@
-/node_modules
+# Ignore node modules and test outputs
+dist/
+node_modules/
+# Local environment files
 .env
-/bargainsng-product
-bargainsng-product
-node-match-api
-/node-match-api
+.env.local
+# MacOS system files
+.DS_Store
+# Log files
+*.log
+# Netlify-specific files
+.netlify/
+# VS Code settings
+.vscode/
