@@ -3,6 +3,7 @@ require("dotenv").config();
 
 const express = require("express");
 const { MongoClient } = require("mongodb");
+const cors = require("cors");                     // <-- NEW: import CORS
 
 const PORT = process.env.PORT || 4000;
 const MONGO_URI =
@@ -13,6 +14,7 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+app.use(cors());                                 // <-- NEW: enable CORS for all origins
 
 // ---- MongoDB Collections State ----
 let client = null;
