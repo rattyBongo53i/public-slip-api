@@ -5,7 +5,8 @@ const express = require("express");
 const { MongoClient } = require("mongodb");
 
 const PORT = process.env.PORT || 4000;
-const MONGO_URI = "mongodb+srv://kojoyeboah53i:saints_salvation2@cluster0.sk4iy96.mongodb.net/generatedslips?retryWrites=true&w=majority";
+const MONGO_URI =
+  "mongodb+srv://kojoyeboah53i:saints_salvation2@cluster0.sk4iy96.mongodb.net/generatedslips?retryWrites=true&w=majority";
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || "generatedslips";
 
 const app = express();
@@ -33,13 +34,15 @@ async function connectMongo() {
 
     await client.connect();
     db = client.db(MONGO_DB_NAME);
-    
+
     // Initialize collections
     collections = {
       master_slips: db.collection("master_slips"),
       generated_slips: db.collection("generated_slips"),
       optimized_slips: db.collection("optimized_slips"),
       master_slip_matches: db.collection("master_slip_matches"),
+      generated_slip_legs: db.collection("generated_slip_legs"),
+
       matches: db.collection("matches"),
       slips: db.collection("slips"), // For the /generate-slip route
     };
@@ -129,9 +132,9 @@ app.post("/generate-slip", async (req, res) => {
 app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
   // Guard: Ensure database collections are available
   if (!collections) {
-    return res.status(503).json({ 
-      success: false, 
-      error: "Database unavailable" 
+    return res.status(503).json({
+      success: false,
+      error: "Database unavailable",
     });
   }
 
@@ -153,8 +156,14 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
 
     // Fetch generated slips for this master slip
     const slips = await collections.generated_slips
-      .find({ master_slip_id: masterSlipId })
+      .find({ master_slip_id: String(masterSlipId) })
       .toArray();
+
+    for (const slip of slips) {
+      slip.legs = await collections.generated_slip_legs
+        .find({ slip_id: slip.slip_id })
+        .toArray();
+    }
 
     // Get all unique match IDs from all legs
     const matchIds = new Set();
@@ -186,9 +195,13 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
           matchesMap.set(match.match_id, {
             id: match.match_id,
             home_team:
-              match.match_data.home_team || match.match_data.homeTeam || "",
+              match.match_data.home_team ||
+              match.match_data.homeTeam ||
+              "",
             away_team:
-              match.match_data.away_team || match.match_data.awayTeam || "",
+              match.match_data.away_team ||
+              match.match_data.awayTeam ||
+              "",
           });
         }
       });
@@ -291,9 +304,9 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
 
 /**
  * POST /api/sync-slips
- * 
+ *
  * Sync master slip and generated slips (upsert) - ENHANCED with backward compatibility
- * 
+ *
  * Accepts payload:
  * {
  *   master_slip: { ... },
@@ -305,9 +318,9 @@ app.get("/api/placement-slips/:masterSlipId", async (req, res) => {
 app.post("/api/sync-slips", async (req, res) => {
   // Guard: Ensure database collections are available
   if (!collections) {
-    return res.status(503).json({ 
-      success: false, 
-      error: "Database unavailable" 
+    return res.status(503).json({
+      success: false,
+      error: "Database unavailable",
     });
   }
 
@@ -356,18 +369,45 @@ app.post("/api/sync-slips", async (req, res) => {
           slip_id: String(
             slip.id ||
               slip.slip_id ||
-              `gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+              `gen_${Date.now()}_${Math.random()
+                .toString(36)
+                .slice(2)}`
           ),
           master_slip_id: masterSlipData.master_slip_id,
           updated_at: new Date(),
         };
 
+        // 1️⃣ Upsert the slip
         await collections.generated_slips.updateOne(
           { slip_id: slipData.slip_id },
           { $set: slipData },
           { upsert: true }
         );
+
         syncCounts.generated_slips++;
+
+        // 2️⃣ Upsert legs (✅ MUST be here)
+        if (Array.isArray(slip.legs)) {
+          for (const leg of slip.legs) {
+            const legData = {
+              ...leg,
+              slip_id: slipData.slip_id,
+              master_slip_id: masterSlipData.master_slip_id,
+              match_id: leg.match_id,
+              market: leg.market,
+              selection: leg.selection,
+              odds: leg.odds,
+              match: leg.match || null,
+              updated_at: new Date(),
+            };
+
+            await collections.generated_slip_legs.updateOne(
+              { id: leg.id },
+              { $set: legData },
+              { upsert: true }
+            );
+          }
+        }
       }
     }
 
@@ -424,9 +464,13 @@ app.post("/api/sync-slips", async (req, res) => {
           const extractedMatch = {
             id: match.match_id,
             home_team:
-              match.match_data.home_team || match.match_data.homeTeam || "",
+              match.match_data.home_team ||
+              match.match_data.homeTeam ||
+              "",
             away_team:
-              match.match_data.away_team || match.match_data.awayTeam || "",
+              match.match_data.away_team ||
+              match.match_data.awayTeam ||
+              "",
             ...match.match_data,
           };
 
